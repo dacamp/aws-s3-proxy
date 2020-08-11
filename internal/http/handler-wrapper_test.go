@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/dacamp/aws-s3-proxy/internal/config"
 	"github.com/dgrijalva/jwt-go"
-	"github.com/pottava/aws-s3-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 

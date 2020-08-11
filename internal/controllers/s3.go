@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"reflect"
 	"sort"
 	"strconv"
@@ -14,9 +15,9 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/dacamp/aws-s3-proxy/internal/config"
+	"github.com/dacamp/aws-s3-proxy/internal/service"
 	"github.com/go-openapi/swag"
-	"github.com/pottava/aws-s3-proxy/internal/config"
-	"github.com/pottava/aws-s3-proxy/internal/service"
 )
 
 // AwsS3 handles requests for Amazon S3
@@ -24,15 +25,15 @@ func AwsS3(w http.ResponseWriter, r *http.Request) {
 	c := config.Config
 
 	// Strip the prefix, if it's present.
-	path := r.URL.Path
+	urlPath := r.URL.Path
 	if len(c.StripPath) > 0 {
-		path = strings.TrimPrefix(path, c.StripPath)
+		urlPath = strings.TrimPrefix(urlPath, c.StripPath)
 	}
 
 	// If there is a health check path defined, and if this path matches it,
 	// then return 200 OK and return.
 	// Note: we want to apply the health check *after* the prefix is stripped.
-	if len(c.HealthCheckPath) > 0 && path == c.HealthCheckPath {
+	if len(c.HealthCheckPath) > 0 && urlPath == c.HealthCheckPath {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -45,26 +46,32 @@ func AwsS3(w http.ResponseWriter, r *http.Request) {
 	client := service.NewClient(r.Context(), aws.String(config.Config.AwsRegion))
 
 	// Replace path with symlink.json
-	idx := strings.Index(path, "symlink.json")
+	idx := strings.Index(urlPath, "symlink.json")
 	if idx > -1 {
-		replaced, err := replacePathWithSymlink(client, c.S3Bucket, c.S3KeyPrefix+path[:idx+12])
+		replaced, err := replacePathWithSymlink(client, c.S3Bucket, c.S3KeyPrefix+urlPath[:idx+12])
 		if err != nil {
 			code, message := toHTTPError(err)
 			http.Error(w, message, code)
 			return
 		}
-		path = aws.StringValue(replaced) + path[idx+12:]
+		urlPath = aws.StringValue(replaced) + urlPath[idx+12:]
 	}
 	// Ends with / -> listing or index.html
-	if strings.HasSuffix(path, "/") {
+	if strings.HasSuffix(urlPath, "/") {
 		if c.DirectoryListing {
-			s3listFiles(w, r, client, c.S3Bucket, c.S3KeyPrefix+path)
+			s3listFiles(w, r, client, c.S3Bucket, c.S3KeyPrefix+urlPath)
 			return
 		}
-		path += c.IndexDocument
+		urlPath += c.IndexDocument
+	} else if !strings.Contains(path.Base(urlPath), ".") {
+		indexFilePath := c.S3KeyPrefix + urlPath + "/" + c.IndexDocument
+		if client.S3head(c.S3Bucket, indexFilePath) {
+			urlPath += "/" + c.IndexDocument
+		}
+
 	}
 	// Get a S3 object
-	obj, err := client.S3get(c.S3Bucket, c.S3KeyPrefix+path, rangeHeader)
+	obj, err := client.S3get(c.S3Bucket, c.S3KeyPrefix+urlPath, rangeHeader)
 	if err != nil {
 		code, message := toHTTPError(err)
 		http.Error(w, message, code)

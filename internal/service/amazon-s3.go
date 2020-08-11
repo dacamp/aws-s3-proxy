@@ -3,7 +3,7 @@ package service
 import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/pottava/aws-s3-proxy/internal/config"
+	"github.com/dacamp/aws-s3-proxy/internal/config"
 )
 
 // S3get returns a specified object from Amazon S3
@@ -14,6 +14,16 @@ func (c client) S3get(bucket, key string, rangeHeader *string) (*s3.GetObjectOut
 		Range:  rangeHeader,
 	}
 	return s3.New(c.Session).GetObjectWithContext(c.Context, req)
+}
+
+func (c client) S3head(bucket, key string) bool {
+	head := &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	output, err := s3.New(c.Session).HeadObject(head)
+	return err == nil && *output.ContentLength > 0
 }
 
 // S3listObjects returns a list of s3 objects
